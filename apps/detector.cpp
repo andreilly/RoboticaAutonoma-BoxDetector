@@ -16,50 +16,39 @@
  */
 
 #include <iostream>
-
 #include <pcl/io/pcd_io.h>
 #include <pcl/visualization/pcl_visualizer.h>
-
- // #include <pcl/point_types.h>
- // #include <pcl/point_types.h>
- // #include <pcl/features/normal_3d.h>
- // #include <pcl/features/integral_image_normal.h>
- // #include <pcl/filters/shadowpoints.h>
-
- // #include <pcl/filters/voxel_grid.h>
 #include <pcl/conversions.h>
 #include <pcl/point_types.h>
 #include <pcl/common/transforms.h>
-
 #include <opencv2/core/core.hpp>
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
-
 #include <Eigen/Dense>
 #include <Eigen/StdVector>
-
 #include <boost/property_tree/json_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
-
-
 #include <rofl/geometry/hough_plane_detector.h>
 #include <rofl/geometry/correspondence_graph_association.h>
 #include <rofl/common/param_map.h>
-
-// #include "ParamMap.h"
-// #include "HoughPlaneDetector.h"
-// #include "types.h"
-
 #include <config.h>
-
 #include "Utils.h"
-
 #include "ImgProc.h"
-
 #include "PointCloudPlaneAligner.h"
 #include "BoxRegistration.h"
-
 #include "BoxDetector.h"
+#include <fstream>
+#include <iostream>
+#include <string>
+#include <unistd.h>
+
+
+struct ArgumentList {
+  std::string config;		    
+  std::string pointCloud;                   
+};
+
+bool ParseInputs(ArgumentList& args, int argc, char **argv);
 
 using namespace rofl;
 
@@ -442,6 +431,11 @@ Parameters readParameters(const std::string& configFile) {
 
 int main(int argc, char** argv)
 {
+  ArgumentList args;
+  if(!ParseInputs(args, argc, argv)) {
+    exit(0);
+  }
+
   std::cout << "Executes Box Detection algorithm" << std::endl;
 
   BoxDetector boxDetector;
@@ -449,7 +443,8 @@ int main(int argc, char** argv)
 
   // LETTURA PARAMETRI 
   #pragma region READING PARAMS
-  std::string configFile = "/home/andreaillica/robotica_ws/src/maf_box_pose6d/tof_image_pallet_box_detector/config.json";
+  std::string configFile = args.config;
+  //std::string configFile = "/home/andreaillica/robotica_ws/src/maf_box_pose6d/tof_image_pallet_box_detector/config.json";
   printConsole("Opening config file: \"" + configFile + "\"");
   Parameters params = readParameters(configFile);
   std::cout << "Box size: longEdge = " << params.longEdge << " shortEdge = " << params.shortEdge << std::endl;
@@ -464,7 +459,9 @@ int main(int argc, char** argv)
 
   // LOADING INPUT DATA
   // Loading the input point cloud
-  std::string filenameIn = "/home/ubuntu/Scaricati/cloud_0250.pcd";
+
+  //"/home/ubuntu/Scaricati/cloud_0250.pcd";
+  std::string filenameIn = args.pointCloud;
   //filenameIn = "/home/ubuntu/Scaricati/rosbag_ordinati.zip-20230923T110143Z-001/rosbag_ordinati/config02_06_box_pattern_none/pcd/config02_06_box_pattern_none.pcd";
   // filenameIn="/home/ubuntu/Scaricati/box_config01_pcd/pcd/cloud_0030.pcd";
   std::cout << "Loading point cloud from \"" << filenameIn << "\"" << std::endl;
@@ -926,4 +923,28 @@ int main(int argc, char** argv)
   cv::destroyAllWindows();
 
   return 0;
+}
+
+bool ParseInputs(ArgumentList& args, int argc, char **argv) {
+  int c;
+
+  while ((c = getopt (argc, argv, "hc:p:")) != -1)
+    switch (c)
+    {
+      case 'c':
+        args.config = optarg;
+        break;
+      case 'p':
+        args.pointCloud = optarg;
+        break;
+      case 'h':
+      default:
+        std::cout<<"usage: " << argv[0] << " -c <config> -p <point cloud"<<std::endl;
+        std::cout<<"Allowed options:"<<std::endl<<
+          "   -h                       produce help message"<<std::endl<<
+          "   -c 'path'                path to the configuration file"<<std::endl<<
+          "   -p 'path'                path to the pointcloud"<<std::endl<<std::endl;
+        return false;
+    }
+  return true;
 }
