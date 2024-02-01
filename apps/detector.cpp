@@ -1,47 +1,7 @@
-/**
- * Pallet box detector using tof camera
- * @author Francesco Patander
- *
- *
- * distancePlaneThreshold
- * - dataset progetto coorsa (imballi con nastro adesivo): 0.05
- * - dataset acquisito in data 17-02-2022:
- *    - bianche: 0.14
- *
- * Per motivi di scadenze il filtro sui convex hull sulla dimensione delle scatole viene fatta in pixel immagine e non in coordinate mondo.
- * area pixel scatole convex hull:
- * - progetto coorsa e scatole bianche: 1000-6000 pixel
- * - scatole "fragile":
- * - scatole "rosse":
- */
-
-#include <iostream>
-#include <pcl/io/pcd_io.h>
-#include <pcl/visualization/pcl_visualizer.h>
-#include <pcl/conversions.h>
-#include <pcl/point_types.h>
-#include <pcl/common/transforms.h>
-#include <opencv2/core/core.hpp>
-#include <opencv2/highgui/highgui.hpp>
-#include <opencv2/imgproc/imgproc.hpp>
-#include <Eigen/Dense>
-#include <Eigen/StdVector>
-#include <boost/property_tree/json_parser.hpp>
-#include <boost/property_tree/ptree.hpp>
+#include "BoxDetector.h"
 #include <rofl/geometry/hough_plane_detector.h>
 #include <rofl/geometry/correspondence_graph_association.h>
 #include <rofl/common/param_map.h>
-#include <config.h>
-#include "Utils.h"
-#include "ImgProc.h"
-#include "PointCloudPlaneAligner.h"
-#include "BoxRegistration.h"
-#include "BoxDetector.h"
-#include <fstream>
-#include <iostream>
-#include <string>
-#include <unistd.h>
-
 
 struct ArgumentList {
   std::string config;
@@ -259,7 +219,7 @@ void lineGradientFilter(const pcl::PointCloud<MyPoint>& cloud,
 
 void setupWindows(int debug)
 {
-  if (debug) {
+  if (debug == 1) {
     cv::namedWindow("imageDepth", cv::WINDOW_NORMAL);
     cv::moveWindow("imageDepth", 0, 0);
     cv::namedWindow("imageDepthPlane", cv::WINDOW_NORMAL);
@@ -314,7 +274,6 @@ void plotPlane(const rofl::HoughPlaneDetector::PlaneParam& params, const pcl::Po
   coefficients.values[1] = params(1);
   coefficients.values[2] = params(2);
   coefficients.values[3] = params(3);
-
   x = 0.0f;
   y = 0.0f;
   z = 0.0f;
@@ -373,12 +332,12 @@ float evaluateAssociationDistance(const std::vector<Eigen::Vector2f, Eigen::alig
 
   return ret / n;
 }
-//Aggiunte da Andrea
+
 void printConsole(const std::string& str) {
   std::cout << str << std::endl;
 }
 
-struct Parameters {
+struct ConfigParam {
   int thetaNum;
   int phiNum;
   int rhoNum;
@@ -402,8 +361,8 @@ bool fileExists(const std::string& filename) {
   std::ifstream file(filename);
   return file.good();
 }
-Parameters readConfigParam(const std::string& configFile) {
-  Parameters params;
+ConfigParam readConfigParam(const std::string& configFile) {
+  ConfigParam params;
 
   try {
     boost::property_tree::ptree root;
@@ -434,7 +393,7 @@ Parameters readConfigParam(const std::string& configFile) {
     params.longEdge = root.get<float>("longEdge", 0.31);
     params.shortEdge = root.get<float>("shortEdge", 0.22);
 
-    std::cout << "Lettura del file JSON completata con successo." << std::endl;
+    printConsole("Lettura del file JSON completata con successo.");
 
   } catch (const std::exception& e) {
     std::cerr << "Errore durante la lettura del file JSON: " << e.what() << std::endl;
@@ -443,98 +402,6 @@ Parameters readConfigParam(const std::string& configFile) {
   return params;
 }
 
-void topPlaneExtraction(pcl::PointCloud<MyPoint>::Ptr cloudIn, pcl::PointCloud<MyPoint>::Ptr cloud1,
-  pcl::PointCloud<MyPoint>::Ptr cloud2, pcl::PointCloud<MyPoint>::Ptr cloudNoGround,
-  pcl::PointCloud<MyPoint>::Ptr cloudPlane, Eigen::VectorXf& planeCoeffs) {
-  std::cout << "Start top plane extraction" << std::endl;
-  ransacTopPlaneExtraction(cloudIn, cloud1, cloud2, cloudNoGround, cloudPlane, planeCoeffs);
-  onPlaneProjection(*cloudPlane, planeCoeffs);
-}
-
-void alignPointCloudWithPlane(pcl::PointCloud<MyPoint>::Ptr cloudIn, const Eigen::VectorXf& planeCoeffs,
-  pcl::PointCloud<MyPoint>::Ptr cloudAligned) {
-  maf::PointCloudPlaneAligner<MyPoint> aligner;
-  aligner.setInputCloud(cloudIn);
-  aligner.setPlaneCoeffs(planeCoeffs);
-  aligner.compute();
-  aligner.transform(*cloudAligned);
-}
-void buildImagesFromPointCloud(const pcl::PointCloud<MyPoint>::Ptr cloudIn,
-  const pcl::PointCloud<MyPoint>::Ptr cloudPlane, const Eigen::VectorXf& planeCoeffs,
-  cv::Mat& imageIntensities, cv::Mat& imageDepth, cv::Mat& imageIntensitiesPlane,
-  cv::Mat& imageDepthPlane, cv::Mat& imageLambert, bool doLambert = false) {
-  std::cout << "Building image intensities and depth" << std::endl;
-  cloudToImgDepth(*cloudIn, imageDepth);
-  cloudToImgIntensities(*cloudIn, imageIntensities);
-  cloudToImgIntensities(*cloudPlane, imageIntensitiesPlane);
-  cloudToImgDepth(*cloudPlane, imageDepthPlane);
-
-  if (doLambert) {
-    std::cout << "Lambert compensation" << std::endl;
-    cloudToImgIntensitiesLambertCompensation(*cloudPlane, planeCoeffs, imageLambert);
-    // cloudToImgIntensitiesLambertCompensation(*cloudIn, planeCoeffs, imageLambert);
-  }
-}
-void blurAndRemoveInvalidPixels(cv::Mat& inputImage, cv::Mat& outputImage, int filterSize, double sigmaColor, double sigmaSpace) {
-  std::cout << "Image blurring" << std::endl;
-  cv::Mat imageBlurred;
-  // Blurring for noise removal
-  cv::bilateralFilter(inputImage, imageBlurred, filterSize, sigmaColor, sigmaSpace);
-  // cv::GaussianBlur(inputImage, imageBlurred, cv::Size(5,5), 0.7);
-
-  // Blurring reintroduces some invalid (nan) pixels: remove them
-  for (int r = 0; r < imageBlurred.rows; ++r) {
-    for (int c = 0; c < imageBlurred.cols; ++c) {
-      if (inputImage.at<float>(r, c) < 1) {
-        imageBlurred.at<float>(r, c) = 0;
-      }
-    }
-  }
-  outputImage = imageBlurred;
-}
-void computeImageGradientAndOrientation(const cv::Mat& imageBlurred, cv::Mat& imageSobelX, cv::Mat& imageSobelY, const cv::Mat& imageNormalized,
-  cv::Mat& imageGradient, cv::Mat& orientation) {
-  std::cout << "Compute image gradient and orientation" << std::endl;
-
-  cv::Sobel(imageBlurred, imageSobelX, CV_32FC1, 1, 0, 3, 1.0 / 256, 0);
-  cv::Sobel(imageBlurred, imageSobelY, CV_32FC1, 0, 1, 3, 1.0 / 256, 0);
-
-  imageGradient = cv::Mat(imageBlurred.rows, imageBlurred.cols, CV_32FC1);
-
-  for (int r = 0; r < imageGradient.rows; ++r) {
-    for (int c = 0; c < imageGradient.cols; ++c) {
-      if (imageNormalized.at<float>(r, c) < 1) {
-        imageGradient.at<float>(r, c) = 0;
-      } else {
-        imageGradient.at<float>(r, c) = std::sqrt(std::pow(imageSobelX.at<float>(r, c), 2) +
-          std::pow(imageSobelY.at<float>(r, c), 2));
-      }
-    }
-  }
-
-  orientation = cv::Mat(imageGradient.rows, imageGradient.cols, CV_8UC1);
-  for (int r = 0; r < imageGradient.rows; ++r) {
-    for (int c = 0; c < imageGradient.cols; ++c) {
-      orientation.at<unsigned char>(r, c) = (std::atan2(imageSobelY.at<float>(r, c),
-        imageSobelX.at<float>(r, c)) *
-        0.5 / M_PI +
-        0.5) *
-        256;
-    }
-  }
-}
-
-void applyColorMapAndThreshold(const cv::Mat& imageNormalized, const cv::Mat& orientation,
-  cv::Mat& orientationColored) {
-  cv::applyColorMap(orientation, orientationColored, cv::COLORMAP_HSV);
-  for (int r = 0; r < orientationColored.rows; ++r) {
-    for (int c = 0; c < orientationColored.cols; ++c) {
-      if (imageNormalized.at<float>(r, c) <= 0.01) {
-        orientationColored.at<cv::Vec3b>(r, c) = cv::Vec3b(0, 0, 0);
-      }
-    }
-  }
-}
 
 
 int main(int argc, char** argv)
@@ -553,29 +420,28 @@ int main(int argc, char** argv)
     exit(0);
   }
   if (args.config.empty()) {
-    std::cout << "Config file not specified" << std::endl;
-    std::cout << "usage options: -c <config> -p <point cloud> -b <box_center>" << std::endl;
+    printConsole("Config file not specified");
+    printConsole("usage options: -c <config> -p <point cloud> -b <box_center>");
     exit(0);
   }
   if (args.pointCloud.empty()) {
-    std::cout << "Point cloud file not specified" << std::endl;
-    std::cout << "usage options: -c <config> -p <point cloud> -b <box_center>" << std::endl;
+    printConsole("Point cloud file not specified");
+    printConsole("usage options: -c <config> -p <point cloud> -b <box_center>");
     exit(0);
   }
-  std::cout << "Executes Box Detection algorithm" << std::endl;
+  printConsole("Executes Box Detection algorithm");
 
 
   // LOADING CONFIG
   if (!fileExists(args.config)) {
     throw std::runtime_error("File " + args.config + " not exits");
   }
-  Parameters params = readConfigParam(args.config);
-  std::cout << "Box size: longEdge = " << params.longEdge << " shortEdge = " << params.shortEdge << std::endl;
+  ConfigParam params = readConfigParam(args.config);
 
   if (params.estimateError) {
     if (args.boxCenter.empty()) {
-      std::cout << "Box center file not specified" << std::endl;
-      std::cout << "usage options: -c <config> -p <point cloud> -b <box_center>" << std::endl;
+      printConsole("Box center file not specified");
+      printConsole("usage options: -c <config> -p <point cloud> -b <box_center>");
       exit(0);
     }
   }
@@ -586,7 +452,7 @@ int main(int argc, char** argv)
     std::cerr << "Cannot load point cloud from \"" << args.pointCloud << "\"" << std::endl;
     return -1;
   }
-  std::cout << "Reading completed successfully. Number of points: " << cloudIn->size() << "\n" << std::endl;
+  printConsole("Reading completed successfully. Number of points: " + cloudIn->size());
 
   // TOP PLANE EXTRACTION
 
@@ -594,13 +460,13 @@ int main(int argc, char** argv)
   Eigen::VectorXf planeCoeffs;
 
   //Top plane extraction
-  topPlaneExtraction(cloudIn, cloud1, cloud2, cloudNoGround, cloudPlane, planeCoeffs);
+  boxDetector.topPlaneExtraction(cloudIn, cloud1, cloud2, cloudNoGround, cloudPlane, planeCoeffs);
 
   pcl::PointCloud<MyPoint>::Ptr cloudAligned(new pcl::PointCloud<MyPoint>);
-  alignPointCloudWithPlane(cloudIn, planeCoeffs, cloudAligned);
+  boxDetector.alignPointCloudWithPlane(cloudIn, planeCoeffs, cloudAligned);
 
   // Build images from point cloud
-  buildImagesFromPointCloud(cloudIn, cloudPlane, planeCoeffs, imageIntensities, imageDepth, imageIntensitiesPlane,
+  boxDetector.buildImagesFromPointCloud(cloudIn, cloudPlane, planeCoeffs, imageIntensities, imageDepth, imageIntensitiesPlane,
     imageDepthPlane, imageLambert, params.doLambert);
 
   if (params.doLambert)
@@ -610,15 +476,15 @@ int main(int argc, char** argv)
 
   //Image blurring
   cv::Mat imageBlurred;
-  blurAndRemoveInvalidPixels(imageNormalized, imageBlurred, 5, 0.7, 0.7);
+  boxDetector.blurAndRemoveInvalidPixels(imageNormalized, imageBlurred, 5, 0.7, 0.7);
 
   cv::Mat imageGradient, orientation, orientationColored, opposite, oppositeTh, imageGradientSuppressed, imageSobelX, imageSobelY;
 
   //Compute image gradient and orientation
-  computeImageGradientAndOrientation(imageBlurred, imageSobelX, imageSobelY, imageNormalized, imageGradient, orientation);
+  boxDetector.computeImageGradientAndOrientation(imageBlurred, imageSobelX, imageSobelY, imageNormalized, imageGradient, orientation);
 
   //Apply color map and threshold
-  applyColorMapAndThreshold(imageNormalized, orientation, orientationColored);
+  boxDetector.applyColorMapAndThreshold(imageNormalized, orientation, orientationColored);
 
   //Non maximum suppression
   nonMaximumSuppression(imageGradient, imageGradientSuppressed, 10 * 4.0 / 256, 1, 3);
@@ -699,10 +565,14 @@ int main(int argc, char** argv)
       float facePostRegResults = boxDetector.computeError(maf_faceCentroids_postReg, centroidsGt);
       // //     float aDist = evaluateAssociationDistance(maf_centroids_preReg, centroidsGt);
       //
+
+      /*
       std::cout << "face centroids error: " << faceResults << std::endl;
       std::cout << "contour centroids error pre reg: " << preRegResults << std::endl;
       std::cout << "contour centroids error post reg: " << postRegResults << std::endl;
       std::cout << "face centroids error post reg: " << facePostRegResults << std::endl;
+      */
+
       // //     std::cout<<"association error: "<<aDist<<std::endl;
     }
 
@@ -734,28 +604,22 @@ int main(int argc, char** argv)
     cv::normalize(imageGradientSuppressed, imageGradientSuppressed, 0, 255, cv::NORM_MINMAX, CV_8UC1);
 
     // Display opencv windows
-    if (args.debug) {
+    if (args.debug == 1) {
       cv::imshow("imageDepth", imageDepth);
       cv::imshow("imageDepthPlane", imageDepthPlane);
       cv::imshow("imageIntensities", imageIntensities);
       cv::imshow("imageIntensitiesPlane", imageIntensitiesPlane);
-
       if (params.doLambert)
         cv::imshow("imageLambert", imageLambert);
       cv::imshow("imageNormalized", imageNormalized);
       cv::imshow("imageBlurred", imageBlurred);
-
       cv::imshow("imageGradient", imageGradient);
       cv::imshow("imageGradientSuppressed", imageGradientSuppressed);
-
       cv::imshow("imageOrientation", orientationColored);
-
       if (params.doLineFilter)
         cv::imshow("opposite", opposite);
       cv::imshow("oppositeTh", oppositeTh);
-
       cv::imshow("Probabilistic Line Transform", cdstP);
-
       cv::imshow("findContours", drawing);
       cv::imshow("approximation", drawingApprox);
     }
@@ -765,9 +629,11 @@ int main(int argc, char** argv)
     viewer->spinOnce(100);
     viewer2->spinOnce(100);
 
-    char key = cv::waitKey(1);
-    if (key == 'q')
-      exit_loop = true;
+    printConsole("Press 'p' to continue, other key to exit");
+    char key = cv::waitKey(0);
+    if (key != 'p') {
+        exit_loop = true;
+    }
   }
 
   // Reset pcl viewer
