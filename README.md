@@ -1,4 +1,4 @@
-# Progetto Robotica Autonoma - Box Detector
+# Box Detector
 ## Avvio
 Per avviare il detector è necessario tenere in considerazioni le seguenti opzioni di avvio:
 * "-c" consente di indicare il path del file di configurazione (obbligatorio)
