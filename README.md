@@ -1,6 +1,6 @@
 # Progetto Robotica Autonoma - Box Detector
 ## Avvio
-Per avviare il detector è necessario tenere in considerazioni le seguenti opzioni di lancio:
+Per avviare il detector è necessario tenere in considerazioni le seguenti opzioni di avvio:
 * "-c" consente di indicare il path del file di configurazione (obbligatorio)
 * "-p" consente di indicare il path del file della point cloud (obbligatorio)
 * "-b" consente di indicare il path del file box center (opzionale)
