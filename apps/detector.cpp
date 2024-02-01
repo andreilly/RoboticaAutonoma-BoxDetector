@@ -473,22 +473,67 @@ void buildImagesFromPointCloud(const pcl::PointCloud<MyPoint>::Ptr cloudIn,
   }
 }
 void blurAndRemoveInvalidPixels(cv::Mat& inputImage, cv::Mat& outputImage, int filterSize, double sigmaColor, double sigmaSpace) {
-    std::cout << "Image blurring" << std::endl;
-    cv::Mat imageBlurred;
-    // Blurring for noise removal
-    cv::bilateralFilter(inputImage, imageBlurred, filterSize, sigmaColor, sigmaSpace);
-    // cv::GaussianBlur(inputImage, imageBlurred, cv::Size(5,5), 0.7);
+  std::cout << "Image blurring" << std::endl;
+  cv::Mat imageBlurred;
+  // Blurring for noise removal
+  cv::bilateralFilter(inputImage, imageBlurred, filterSize, sigmaColor, sigmaSpace);
+  // cv::GaussianBlur(inputImage, imageBlurred, cv::Size(5,5), 0.7);
 
-    // Blurring reintroduces some invalid (nan) pixels: remove them
-    for (int r = 0; r < imageBlurred.rows; ++r) {
-        for (int c = 0; c < imageBlurred.cols; ++c) {
-            if (inputImage.at<float>(r, c) < 1) {
-                imageBlurred.at<float>(r, c) = 0;
-            }
-        }
+  // Blurring reintroduces some invalid (nan) pixels: remove them
+  for (int r = 0; r < imageBlurred.rows; ++r) {
+    for (int c = 0; c < imageBlurred.cols; ++c) {
+      if (inputImage.at<float>(r, c) < 1) {
+        imageBlurred.at<float>(r, c) = 0;
+      }
     }
-    outputImage = imageBlurred;
+  }
+  outputImage = imageBlurred;
 }
+void computeImageGradientAndOrientation(const cv::Mat& imageBlurred, cv::Mat& imageSobelX, cv::Mat& imageSobelY, const cv::Mat& imageNormalized,
+  cv::Mat& imageGradient, cv::Mat& orientation) {
+  std::cout << "Compute image gradient and orientation" << std::endl;
+
+  cv::Sobel(imageBlurred, imageSobelX, CV_32FC1, 1, 0, 3, 1.0 / 256, 0);
+  cv::Sobel(imageBlurred, imageSobelY, CV_32FC1, 0, 1, 3, 1.0 / 256, 0);
+
+  imageGradient = cv::Mat(imageBlurred.rows, imageBlurred.cols, CV_32FC1);
+
+  for (int r = 0; r < imageGradient.rows; ++r) {
+    for (int c = 0; c < imageGradient.cols; ++c) {
+      if (imageNormalized.at<float>(r, c) < 1) {
+        imageGradient.at<float>(r, c) = 0;
+      } else {
+        imageGradient.at<float>(r, c) = std::sqrt(std::pow(imageSobelX.at<float>(r, c), 2) +
+          std::pow(imageSobelY.at<float>(r, c), 2));
+      }
+    }
+  }
+
+  orientation = cv::Mat(imageGradient.rows, imageGradient.cols, CV_8UC1);
+  for (int r = 0; r < imageGradient.rows; ++r) {
+    for (int c = 0; c < imageGradient.cols; ++c) {
+      orientation.at<unsigned char>(r, c) = (std::atan2(imageSobelY.at<float>(r, c),
+        imageSobelX.at<float>(r, c)) *
+        0.5 / M_PI +
+        0.5) *
+        256;
+    }
+  }
+}
+
+void applyColorMapAndThreshold(const cv::Mat& imageNormalized, const cv::Mat& orientation,
+  cv::Mat& orientationColored) {
+  cv::applyColorMap(orientation, orientationColored, cv::COLORMAP_HSV);
+  for (int r = 0; r < orientationColored.rows; ++r) {
+    for (int c = 0; c < orientationColored.cols; ++c) {
+      if (imageNormalized.at<float>(r, c) <= 0.01) {
+        orientationColored.at<cv::Vec3b>(r, c) = cv::Vec3b(0, 0, 0);
+      }
+    }
+  }
+}
+
+
 int main(int argc, char** argv)
 {
   //Variable
@@ -524,12 +569,12 @@ int main(int argc, char** argv)
   Parameters params = readConfigParam(args.config);
   std::cout << "Box size: longEdge = " << params.longEdge << " shortEdge = " << params.shortEdge << std::endl;
 
-  if(params.estimateError) {
+  if (params.estimateError) {
     if (args.boxCenter.empty()) {
-    std::cout << "Box center file not specified" << std::endl;
-    std::cout << "usage options: -c <config> -p <point cloud> -b <box_center>" << std::endl;
-    exit(0);
-  }
+      std::cout << "Box center file not specified" << std::endl;
+      std::cout << "usage options: -c <config> -p <point cloud> -b <box_center>" << std::endl;
+      exit(0);
+    }
   }
 
   // LOADING INPUT POINT CLOUD
@@ -564,62 +609,22 @@ int main(int argc, char** argv)
   cv::Mat imageBlurred;
   blurAndRemoveInvalidPixels(imageNormalized, imageBlurred, 5, 0.7, 0.7);
 
+  cv::Mat imageGradient, orientation, orientationColored, opposite, oppositeTh, imageGradientSuppressed, imageSobelX, imageSobelY;
 
-  std::cout << "Compute image gradient and orientation" << std::endl;
-  // Gradient and orientation
-  cv::Mat imageSobelX;
-  cv::Mat imageSobelY;
-  cv::Sobel(imageBlurred, imageSobelX, CV_32FC1, 1, 0, 3, 1.0 / 256, 0);
-  cv::Sobel(imageBlurred, imageSobelY, CV_32FC1, 0, 1, 3, 1.0 / 256, 0);
-  cv::Mat imageGradient = cv::Mat(imageBlurred.rows, imageBlurred.cols, CV_32FC1);
+  //Compute image gradient and orientation
+  computeImageGradientAndOrientation(imageBlurred, imageSobelX, imageSobelY, imageNormalized, imageGradient, orientation);
 
-  for (int r = 0; r < imageGradient.rows; ++r) {
-    for (int c = 0; c < imageGradient.cols; ++c) {
-      if (imageNormalized.at<float>(r, c) < 1) {
-        imageGradient.at<float>(r, c) = 0;
-      } else {
-        imageGradient.at<float>(r, c) = std::sqrt(std::pow(imageSobelX.at<float>(r, c), 2) +
-          std::pow(imageSobelY.at<float>(r, c), 2));
-      }
-    }
-  }
+  //Apply color map and threshold
+  applyColorMapAndThreshold(imageNormalized, orientation, orientationColored);
 
-  cv::Mat orientation = cv::Mat(imageGradient.rows, imageGradient.cols, CV_8UC1);
-  for (int r = 0; r < imageGradient.rows; ++r) {
-    for (int c = 0; c < imageGradient.cols; ++c) {
-      orientation.at<unsigned char>(r, c) = (std::atan2(imageSobelY.at<float>(r, c),
-        imageSobelX.at<float>(r, c)) *
-        0.5 / M_PI +
-        0.5) *
-        256;
-    }
-  }
-  cv::Mat orientationColored;
-  cv::applyColorMap(orientation, orientationColored, cv::COLORMAP_HSV);
-  for (int r = 0; r < imageGradient.rows; ++r) {
-    for (int c = 0; c < imageGradient.cols; ++c) {
-      if (imageNormalized.at<float>(r, c) <= 0.01) {
-        orientationColored.at<cv::Vec3b>(r, c) = cv::Vec3b(0, 0, 0);
-      }
-    }
-  }
+  //Non maximum suppression
+  nonMaximumSuppression(imageGradient, imageGradientSuppressed, 10 * 4.0 / 256,1, 3);
 
-  std::cout << "Non Maxima Suppression" << std::endl;
-  cv::Mat imageGradientSuppressed;
-  nonMaximumSuppression(imageGradient, imageGradientSuppressed, 10 * 4.0 / 256, 1, 3);
-
-  cv::Mat opposite;
-  cv::Mat oppositeTh;
   if (params.doLineFilter) {
     std::cout << "Line Gradient Filter" << std::endl;
-    //   lineGradientFilter(*cloudPlaneOrgProj, imageBlurred, imageGradientSuppressed,
-    //                      imageSobelX, imageSobelY, imageGradient, opposite, 0.1);
-    lineGradientFilter(*cloudPlane, imageBlurred, imageGradientSuppressed,
-      imageSobelX, imageSobelY, imageGradient, opposite, 0.1);
+    lineGradientFilter(*cloudPlane, imageBlurred, imageGradientSuppressed, imageSobelX, imageSobelY, imageGradient, opposite, 0.1);
     cv::threshold(opposite, oppositeTh, 210, 255, cv::THRESH_BINARY);
-    std::cout << "lgf: " << oppositeTh.type() << std::endl;
   } else {
-    //     imageGradientSuppressed.convertTo(opposite, CV_8UC1);
     cv::normalize(imageGradientSuppressed, opposite, 0, 255, cv::NORM_MINMAX, CV_8UC1);
     cv::threshold(opposite, oppositeTh, 30, 255, cv::THRESH_BINARY);
   }
@@ -786,24 +791,6 @@ int main(int argc, char** argv)
         rng.uniform(0, 256));
       cv::drawContours(drawingApprox, contours, (int)i, color, 1, cv::LINE_8, hierarchy, 0);
     }
-
-#pragma region CONTOURS_DEBUG
-    //    //Uncomment for debugging
-    //     std::cout<<"contours size: "<<contours.size()<<std::endl;
-    //     for(size_t i = 0; i < contours.size(); ++i) {
-    // //     for(size_t i = 0; i < 1; ++i) {
-    //       std::cout<<"c["<<i<<"]: ";
-    //       for(size_t k=0; k<contours[i].size(); ++k) {
-    //         std::cout<<contours[i][k]<<" ";
-    //       }
-    //       std::cout<<std::endl;
-    //     }
-    //
-    //     std::cout<<"[Next, Previous, Child, Parent]"<<std::endl;
-    //     for(size_t i = 0; i < hierarchy.size(); ++i) {
-    //       std::cout<<"h["<<i<<"]: "<<hierarchy[i]<<std::endl;
-    //     }
-#pragma endregion CONTOURS_DEBUG
 
     // Normalization before viewing
     cv::normalize(imageDepth, imageDepth, 0, 255, cv::NORM_MINMAX, CV_8UC1);
