@@ -171,19 +171,7 @@ void BoxDetector::findContoursAndDraw(cv::Mat &cdstP,cv::Mat &imageIntensities, 
 std::vector<Eigen::Vector2f, Eigen::aligned_allocator<Eigen::Vector2f>> BoxDetector::loadGroundTruth(const std::string& filenameIn) 
 {
     std::string gtIn = filenameIn;
-    std::cout << "gtIn: " << gtIn << std::endl;
-    bool done = false;
-    while (!done) {
-        if (gtIn[gtIn.length() - 1] == '/') {
-            done = true;
-        } else {
-            gtIn.pop_back();
-        }
-    }
-    gtIn += "gt/box_centers.txt";
-
     std::cout << "Loading ground truth from \"" << gtIn << "\"" << std::endl;
-
     std::vector<Eigen::Vector2f, Eigen::aligned_allocator<Eigen::Vector2f>> centroidsGt;
     std::ifstream gt;
     std::string boxName;

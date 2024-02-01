@@ -44,11 +44,12 @@
 
 
 struct ArgumentList {
-  std::string config;		    
-  std::string pointCloud;                   
+  std::string config;
+  std::string pointCloud;
+  std::string boxCenter;
 };
 
-bool ParseInputs(ArgumentList& args, int argc, char **argv);
+bool ParseInputs(ArgumentList& args, int argc, char** argv);
 
 using namespace rofl;
 
@@ -370,33 +371,38 @@ float evaluateAssociationDistance(const std::vector<Eigen::Vector2f, Eigen::alig
   return ret / n;
 }
 //Aggiunte da Andrea
-void printConsole(const std::string& str){
+void printConsole(const std::string& str) {
   std::cout << str << std::endl;
 }
 
 struct Parameters {
-    int thetaNum;
-    int phiNum;
-    int rhoNum;
-    float thetaStep;
-    float phiStep;
-    float rhoStep;
-    float thetaMin;
-    float phiMin;
-    float rhoMin;
-    float thetaWin;
-    float phiWin;
-    float rhoWin;
-    float distancePlaneThreshold;
-    bool doLambert;
-    bool doLineFilter;
-    bool estimateError;
-    float longEdge;
-    float shortEdge;
+  int thetaNum;
+  int phiNum;
+  int rhoNum;
+  float thetaStep;
+  float phiStep;
+  float rhoStep;
+  float thetaMin;
+  float phiMin;
+  float rhoMin;
+  float thetaWin;
+  float phiWin;
+  float rhoWin;
+  float distancePlaneThreshold;
+  bool doLambert;
+  bool doLineFilter;
+  bool estimateError;
+  float longEdge;
+  float shortEdge;
 };
-Parameters readParameters(const std::string& configFile) {
-    Parameters params;
+bool fileExists(const std::string& filename) {
+  std::ifstream file(filename);
+  return file.good();
+}
+Parameters readConfigParam(const std::string& configFile) {
+  Parameters params;
 
+  try {
     boost::property_tree::ptree root;
     boost::property_tree::read_json(configFile, root);
 
@@ -425,151 +431,75 @@ Parameters readParameters(const std::string& configFile) {
     params.longEdge = root.get<float>("longEdge", 0.31);
     params.shortEdge = root.get<float>("shortEdge", 0.22);
 
-    return params;
-}
+    std::cout << "Lettura del file JSON completata con successo." << std::endl;
 
+  } catch (const std::exception& e) {
+    std::cerr << "Errore durante la lettura del file JSON: " << e.what() << std::endl;
+  }
+
+  return params;
+}
 
 int main(int argc, char** argv)
 {
   ArgumentList args;
-  if(!ParseInputs(args, argc, argv)) {
+  if (!ParseInputs(args, argc, argv)) {
     exit(0);
   }
-
+  if(args.config.empty()) {
+    std::cout << "Config file not specified" << std::endl;
+    exit(0);
+  }
+  if(args.pointCloud.empty()) {
+    std::cout << "Point cloud file not specified" << std::endl;
+    exit(0);
+  }
+  if(args.boxCenter.empty()) {
+    std::cout << "Box center file not specified" << std::endl;
+    exit(0);
+  }
+  
   std::cout << "Executes Box Detection algorithm" << std::endl;
+
+
 
   BoxDetector boxDetector;
 
 
-  // LETTURA PARAMETRI 
-  #pragma region READING PARAMS
-  std::string configFile = args.config;
-  //std::string configFile = "/home/andreaillica/robotica_ws/src/maf_box_pose6d/tof_image_pallet_box_detector/config.json";
-  printConsole("Opening config file: \"" + configFile + "\"");
-  Parameters params = readParameters(configFile);
+#pragma region READ_CONF_PARAM
+  // LOADING CONFIG
+  if (!fileExists(args.config)) {
+    throw std::runtime_error("File " + args.config+ " not exits");
+  }
+  Parameters params = readConfigParam(args.config);
   std::cout << "Box size: longEdge = " << params.longEdge << " shortEdge = " << params.shortEdge << std::endl;
+#pragma endregion READ_CONF_PARAM
 
-  #pragma endregion READING PARAMS
+  
+#pragma region READ_POINT_CLOUD
 
-
-  std::cout << "Parameters:" << std::endl;
-  //   std::cout<<" thetaNum: "<<thetaNum<<"\n phiNum: "<<phiNum<<"\n rhoNum: "<<rhoNum<<"\n rhoStep: "<<rhoStep<<std::endl;
-
+  // LOADING INPUT POINT CLOUD - "/home/ubuntu/Scaricati/cloud_0250.pcd"
   pcl::PointCloud<MyPoint>::Ptr cloudIn(new pcl::PointCloud<MyPoint>);
-
-  // LOADING INPUT DATA
-  // Loading the input point cloud
-
-  //"/home/ubuntu/Scaricati/cloud_0250.pcd";
-  std::string filenameIn = args.pointCloud;
-  //filenameIn = "/home/ubuntu/Scaricati/rosbag_ordinati.zip-20230923T110143Z-001/rosbag_ordinati/config02_06_box_pattern_none/pcd/config02_06_box_pattern_none.pcd";
-  // filenameIn="/home/ubuntu/Scaricati/box_config01_pcd/pcd/cloud_0030.pcd";
-  std::cout << "Loading point cloud from \"" << filenameIn << "\"" << std::endl;
-
-  if (pcl::io::loadPCDFile(filenameIn, *cloudIn) < 0) {
-    std::cerr << "Cannot load point cloud from \"" << filenameIn << "\"" << std::endl;
+  if (pcl::io::loadPCDFile(args.pointCloud, *cloudIn) < 0) {
+    std::cerr << "Cannot load point cloud from \"" << args.pointCloud << "\"" << std::endl;
     return -1;
   }
-  std::cout << "cloudIn has " << cloudIn->size() << " points" << std::endl;
+  std::cout << "Reading completed successfully. Number of points: " << cloudIn->size()  << "\n" << std::endl;
 
-  // END LOADING DATA
+#pragma endregion READ_POINT_CLOUD
 
   pcl::PointCloud<MyPoint>::Ptr cloudPlane(new pcl::PointCloud<MyPoint>);
   pcl::PointCloud<MyPoint>::Ptr cloud1(new pcl::PointCloud<MyPoint>);
   pcl::PointCloud<MyPoint>::Ptr cloud2(new pcl::PointCloud<MyPoint>);
   pcl::PointCloud<MyPoint>::Ptr cloudNoGround(new pcl::PointCloud<MyPoint>);
+
+  //Plane coefficients extracted from the point cloud with RANSAC
   Eigen::VectorXf planeCoeffs;
 
-  // ONLY FOR IFM SICK DATASET
-  //   pcl::PointCloud<MyPoint>::Ptr cloudOut(new pcl::PointCloud<MyPoint>);
-  //   cloudOut->resize(cloudIn->width * cloudIn->height );
-  //   std::cout<<"cloud out size: "<<cloudOut->size()<<std::endl;
-
-  //   for(int r=0; r<cloudIn->height; ++r) {
-  //     for(int c=0; c<cloudIn->width; ++c) {
-  //       int i = r*cloudIn->width+c;
-  //       int ii = c*cloudIn->height+r;
-  //       cloudOut->at(ii) = cloudIn->at(i);
-  //     }
-  //   }
-
-  //   copyPointCloud(*cloudOut, *cloudIn);
 
   std::cout << "Start top plane extraction" << std::endl;
-  // Comment ransac extraction (use rofl huough plane detector)
   ransacTopPlaneExtraction(cloudIn, cloud1, cloud2, cloudNoGround, cloudPlane, planeCoeffs);
-  //std::cout << "cloudPlane has " << cloudPlane->size() << " points (must be equal to cloudIn size because we want to keep it organized)" << std::endl;
 
- /* std::cout << "rofl plane extraction" << std::endl;
-  rofl::HoughPlaneDetector hpd;
-
-  hpd.init(houghNums, houghMins, houghSteps);
-  hpd.init(thetaNum, phiNum, rhoNum, rhoStep);//
-  hpd.setPeakWindow(thetaWin, phiWin, rhoWin);//
-
-  const auto pclToEigen = [](const MyPoint &point) -> rofl::Vector3
-  {
-    rofl::Vector3 pointEig(point.x, point.y, point.z);
-    return pointEig;
-  };
-
-  hpd.insert<pcl::PointCloud<pcl::PointXYZI>::iterator>(cloudIn->begin(), cloudIn->end(), pclToEigen); //!! interesting that specification of (2nd) template parameter is not needed
-
-//     HoughPlaneDetector::PlaneParam plParam;
-//     hpd.findPlanes(plParam);
-
-//     std::cout<<"plParam: "<<plParam<<std::endl;
-
-  HoughPlaneDetector::VectorPlaneParam planes;
-  hpd.findPlanes(planes);
-
-  std::vector<rofl::HoughPlaneDetector::Indices2> hsMaxima;
-  hpd.findSpectrumMax(hsMaxima);
-  for (auto &hmax : hsMaxima)
-  {
-    std::cout
-        << "  [" << hmax[0] << "," << hmax[1] << "]: normal [" << hpd.getNormal(hmax).transpose() << "]"
-        << " HS " << hpd.getHoughSpectrum(hmax)
-        << std::endl;
-  }
-
-  std::cout << " rrho: " << hpd.getRhoMin() << " " << hpd.getRhoRes() << std::endl;
-
-  //rofl::HoughPlaneDetector::VectorPlaneParam planes;
-  if (!hsMaxima.empty())
-  {
-    std::cout << "find parallel planes to maximum normal:" << std::endl;
-    int ithetaMax = hsMaxima[0][0];
-    int iphiMax = hsMaxima[0][1];
-    hpd.findParallelPlanes(ithetaMax, iphiMax, planes);
-    for (int i = 0; i < planes.size(); ++i)
-    {
-      std::cout << "planes[" << i << "] = [" << planes[i].transpose() << "]\n";
-    }
-  }
-  else
-  {
-    std::cout << "NO maximum normal" << std::endl;
-  }
-
-  float dMin = std::numeric_limits<float>::max();
-  int pIndex;
-  // Find top plane
-  for (int i = 0; i < planes.size(); ++i)
-  {
-    if (planes[i](3) <= dMin)
-    {
-      dMin = planes[i](3);
-      pIndex = i;
-    }
-  }
-  std::cout << "Top plane is plane[" << pIndex << "]" << planes[pIndex].transpose() << std::endl;
-
-  pcl::copyPointCloud(*cloudIn, *cloudPlane);
-  planeInliers(*cloudPlane, planes[pIndex], distancePlaneThreshold);
-
-  planeCoeffs = planes[pIndex];*/
-  //--
   onPlaneProjection(*cloudPlane, planeCoeffs);
 
   pcl::PointCloud<MyPoint>::Ptr cloudAligned(new pcl::PointCloud<MyPoint>);
@@ -579,7 +509,6 @@ int main(int argc, char** argv)
   aligner.setPlaneCoeffs(planeCoeffs);
   aligner.compute();
   aligner.transform(*cloudAligned);
-  //   planeTransf_ = aligner.getTransform();
 
   cv::Mat imageIntensities(cloudIn->height, cloudIn->width, CV_32FC1);
   cv::Mat imageDepth(cloudIn->height, cloudIn->width, CV_32FC1);
@@ -817,7 +746,7 @@ int main(int argc, char** argv)
     if (params.estimateError) {
       // LOAD GROUND TRUTH
       std::vector<Eigen::Vector2f, Eigen::aligned_allocator<Eigen::Vector2f>> centroidsGt;
-      centroidsGt = boxDetector.loadGroundTruth(filenameIn);
+      centroidsGt = boxDetector.loadGroundTruth(args.boxCenter);
 
       std::cout << "Risultati:" << std::endl;
       float faceResults = boxDetector.computeError(faceCentroids, centroidsGt);
@@ -848,6 +777,7 @@ int main(int argc, char** argv)
       cv::drawContours(drawingApprox, contours, (int)i, color, 1, cv::LINE_8, hierarchy, 0);
     }
 
+#pragma region CONTOURS_DEBUG
     //    //Uncomment for debugging
     //     std::cout<<"contours size: "<<contours.size()<<std::endl;
     //     for(size_t i = 0; i < contours.size(); ++i) {
@@ -863,7 +793,8 @@ int main(int argc, char** argv)
     //     for(size_t i = 0; i < hierarchy.size(); ++i) {
     //       std::cout<<"h["<<i<<"]: "<<hierarchy[i]<<std::endl;
     //     }
-
+#pragma endregion CONTOURS_DEBUG
+    
     // Normalization before viewing
     cv::normalize(imageDepth, imageDepth, 0, 255, cv::NORM_MINMAX, CV_8UC1);
     cv::normalize(imageDepthPlane, imageDepthPlane, 0, 255, cv::NORM_MINMAX, CV_8UC1);
@@ -883,7 +814,7 @@ int main(int argc, char** argv)
     cv::imshow("imageIntensitiesPlane", imageIntensitiesPlane);
 
     if (params.doLambert)
-      cv::imshow("imageLambert", imageLambert);
+    cv::imshow("imageLambert", imageLambert);
     cv::imshow("imageNormalized", imageNormalized);
     cv::imshow("imageBlurred", imageBlurred);
 
@@ -925,26 +856,29 @@ int main(int argc, char** argv)
   return 0;
 }
 
-bool ParseInputs(ArgumentList& args, int argc, char **argv) {
+bool ParseInputs(ArgumentList& args, int argc, char** argv) {
   int c;
 
-  while ((c = getopt (argc, argv, "hc:p:")) != -1)
-    switch (c)
-    {
-      case 'c':
-        args.config = optarg;
-        break;
-      case 'p':
-        args.pointCloud = optarg;
-        break;
-      case 'h':
-      default:
-        std::cout<<"usage: " << argv[0] << " -c <config> -p <point cloud"<<std::endl;
-        std::cout<<"Allowed options:"<<std::endl<<
-          "   -h                       produce help message"<<std::endl<<
-          "   -c 'path'                path to the configuration file"<<std::endl<<
-          "   -p 'path'                path to the pointcloud"<<std::endl<<std::endl;
-        return false;
+  while ((c = getopt(argc, argv, "hc:p:b:")) != -1)
+    switch (c) {
+    case 'c':
+      args.config = optarg;
+      break;
+    case 'p':
+      args.pointCloud = optarg;
+      break;
+    case 'b':
+      args.boxCenter = optarg;
+      break;
+    case 'h':
+    default:
+      std::cout << "usage: " << argv[0] << " -c <config> -p <point cloud> -b <box_center>" << std::endl;
+      std::cout << "Allowed options:" << std::endl <<
+        "   -h                       produce help message" << std::endl <<
+        "   -c 'path'                path to the configuration file" << std::endl <<
+        "   -p 'path'                path to the pointcloud" << std::endl <<
+        "   -b 'path'                path to the box center file" << std::endl << std::endl;
+      return false;
     }
   return true;
 }
