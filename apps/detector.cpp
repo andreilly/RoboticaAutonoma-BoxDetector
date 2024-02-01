@@ -440,116 +440,130 @@ Parameters readConfigParam(const std::string& configFile) {
   return params;
 }
 
-int main(int argc, char** argv)
-{
-  ArgumentList args;
-  if (!ParseInputs(args, argc, argv)) {
-    exit(0);
-  }
-  if(args.config.empty()) {
-    std::cout << "Config file not specified" << std::endl;
-    exit(0);
-  }
-  if(args.pointCloud.empty()) {
-    std::cout << "Point cloud file not specified" << std::endl;
-    exit(0);
-  }
-  if(args.boxCenter.empty()) {
-    std::cout << "Box center file not specified" << std::endl;
-    exit(0);
-  }
-  
-  std::cout << "Executes Box Detection algorithm" << std::endl;
-
-
-
-  BoxDetector boxDetector;
-
-
-#pragma region READ_CONF_PARAM
-  // LOADING CONFIG
-  if (!fileExists(args.config)) {
-    throw std::runtime_error("File " + args.config+ " not exits");
-  }
-  Parameters params = readConfigParam(args.config);
-  std::cout << "Box size: longEdge = " << params.longEdge << " shortEdge = " << params.shortEdge << std::endl;
-#pragma endregion READ_CONF_PARAM
-
-  
-#pragma region READ_POINT_CLOUD
-
-  // LOADING INPUT POINT CLOUD - "/home/ubuntu/Scaricati/cloud_0250.pcd"
-  pcl::PointCloud<MyPoint>::Ptr cloudIn(new pcl::PointCloud<MyPoint>);
-  if (pcl::io::loadPCDFile(args.pointCloud, *cloudIn) < 0) {
-    std::cerr << "Cannot load point cloud from \"" << args.pointCloud << "\"" << std::endl;
-    return -1;
-  }
-  std::cout << "Reading completed successfully. Number of points: " << cloudIn->size()  << "\n" << std::endl;
-
-#pragma endregion READ_POINT_CLOUD
-
-  pcl::PointCloud<MyPoint>::Ptr cloudPlane(new pcl::PointCloud<MyPoint>);
-  pcl::PointCloud<MyPoint>::Ptr cloud1(new pcl::PointCloud<MyPoint>);
-  pcl::PointCloud<MyPoint>::Ptr cloud2(new pcl::PointCloud<MyPoint>);
-  pcl::PointCloud<MyPoint>::Ptr cloudNoGround(new pcl::PointCloud<MyPoint>);
-
-  //Plane coefficients extracted from the point cloud with RANSAC
-  Eigen::VectorXf planeCoeffs;
-
-
+void topPlaneExtraction(pcl::PointCloud<MyPoint>::Ptr cloudIn, pcl::PointCloud<MyPoint>::Ptr cloud1,
+  pcl::PointCloud<MyPoint>::Ptr cloud2, pcl::PointCloud<MyPoint>::Ptr cloudNoGround,
+  pcl::PointCloud<MyPoint>::Ptr cloudPlane, Eigen::VectorXf& planeCoeffs) {
   std::cout << "Start top plane extraction" << std::endl;
   ransacTopPlaneExtraction(cloudIn, cloud1, cloud2, cloudNoGround, cloudPlane, planeCoeffs);
-
   onPlaneProjection(*cloudPlane, planeCoeffs);
+}
 
-  pcl::PointCloud<MyPoint>::Ptr cloudAligned(new pcl::PointCloud<MyPoint>);
-
+void alignPointCloudWithPlane(pcl::PointCloud<MyPoint>::Ptr cloudIn, const Eigen::VectorXf& planeCoeffs,
+  pcl::PointCloud<MyPoint>::Ptr cloudAligned) {
   maf::PointCloudPlaneAligner<MyPoint> aligner;
   aligner.setInputCloud(cloudIn);
   aligner.setPlaneCoeffs(planeCoeffs);
   aligner.compute();
   aligner.transform(*cloudAligned);
-
-  cv::Mat imageIntensities(cloudIn->height, cloudIn->width, CV_32FC1);
-  cv::Mat imageDepth(cloudIn->height, cloudIn->width, CV_32FC1);
-  cv::Mat imageDepthPlane(cloudIn->height, cloudIn->width, CV_32FC1);
-  cv::Mat imageIntensitiesPlane(cloudIn->height, cloudIn->width, CV_32FC1);
-
+}
+void buildImagesFromPointCloud(const pcl::PointCloud<MyPoint>::Ptr cloudIn,
+  const pcl::PointCloud<MyPoint>::Ptr cloudPlane, const Eigen::VectorXf& planeCoeffs,
+  cv::Mat& imageIntensities, cv::Mat& imageDepth, cv::Mat& imageIntensitiesPlane,
+  cv::Mat& imageDepthPlane, cv::Mat& imageLambert, bool doLambert = false) {
   std::cout << "Building image intensities and depth" << std::endl;
   cloudToImgDepth(*cloudIn, imageDepth);
   cloudToImgIntensities(*cloudIn, imageIntensities);
   cloudToImgIntensities(*cloudPlane, imageIntensitiesPlane);
   cloudToImgDepth(*cloudPlane, imageDepthPlane);
 
-  cv::Mat imageLambert;
-  if (params.doLambert) {
+  if (doLambert) {
     std::cout << "Lambert compensation" << std::endl;
     cloudToImgIntensitiesLambertCompensation(*cloudPlane, planeCoeffs, imageLambert);
-    //     cloudToImgIntensitiesLambertCompensation(*cloudIn, planeCoeffs, imageLambert);
+    // cloudToImgIntensitiesLambertCompensation(*cloudIn, planeCoeffs, imageLambert);
+  }
+}
+void blurAndRemoveInvalidPixels(cv::Mat& inputImage, cv::Mat& outputImage, int filterSize, double sigmaColor, double sigmaSpace) {
+    std::cout << "Image blurring" << std::endl;
+    cv::Mat imageBlurred;
+    // Blurring for noise removal
+    cv::bilateralFilter(inputImage, imageBlurred, filterSize, sigmaColor, sigmaSpace);
+    // cv::GaussianBlur(inputImage, imageBlurred, cv::Size(5,5), 0.7);
+
+    // Blurring reintroduces some invalid (nan) pixels: remove them
+    for (int r = 0; r < imageBlurred.rows; ++r) {
+        for (int c = 0; c < imageBlurred.cols; ++c) {
+            if (inputImage.at<float>(r, c) < 1) {
+                imageBlurred.at<float>(r, c) = 0;
+            }
+        }
+    }
+    outputImage = imageBlurred;
+}
+int main(int argc, char** argv)
+{
+  //Variable
+  cv::Mat imageIntensities, imageDepth, imageIntensitiesPlane, imageDepthPlane, imageNormalized, imageLambert;
+  pcl::PointCloud<MyPoint>::Ptr cloudPlane(new pcl::PointCloud<MyPoint>);
+  pcl::PointCloud<MyPoint>::Ptr cloud1(new pcl::PointCloud<MyPoint>);
+  pcl::PointCloud<MyPoint>::Ptr cloud2(new pcl::PointCloud<MyPoint>);
+  pcl::PointCloud<MyPoint>::Ptr cloudNoGround(new pcl::PointCloud<MyPoint>);
+  BoxDetector boxDetector;
+
+  //Start program
+  ArgumentList args;
+  if (!ParseInputs(args, argc, argv)) {
+    exit(0);
+  }
+  if (args.config.empty()) {
+    std::cout << "Config file not specified" << std::endl;
+    std::cout << "usage options: -c <config> -p <point cloud> -b <box_center>" << std::endl;
+    exit(0);
+  }
+  if (args.pointCloud.empty()) {
+    std::cout << "Point cloud file not specified" << std::endl;
+    std::cout << "usage options: -c <config> -p <point cloud> -b <box_center>" << std::endl;
+    exit(0);
+  }
+  std::cout << "Executes Box Detection algorithm" << std::endl;
+
+
+  // LOADING CONFIG
+  if (!fileExists(args.config)) {
+    throw std::runtime_error("File " + args.config + " not exits");
+  }
+  Parameters params = readConfigParam(args.config);
+  std::cout << "Box size: longEdge = " << params.longEdge << " shortEdge = " << params.shortEdge << std::endl;
+
+  if(params.estimateError) {
+    if (args.boxCenter.empty()) {
+    std::cout << "Box center file not specified" << std::endl;
+    std::cout << "usage options: -c <config> -p <point cloud> -b <box_center>" << std::endl;
+    exit(0);
+  }
   }
 
-  std::cout << "Image histogram normalization" << std::endl;
-  cv::Mat imageNormalized;
+  // LOADING INPUT POINT CLOUD
+  pcl::PointCloud<MyPoint>::Ptr cloudIn(new pcl::PointCloud<MyPoint>);
+  if (pcl::io::loadPCDFile(args.pointCloud, *cloudIn) < 0) {
+    std::cerr << "Cannot load point cloud from \"" << args.pointCloud << "\"" << std::endl;
+    return -1;
+  }
+  std::cout << "Reading completed successfully. Number of points: " << cloudIn->size() << "\n" << std::endl;
+
+  // TOP PLANE EXTRACTION
+
+  // Plane coefficients extracted from the point cloud with RANSAC
+  Eigen::VectorXf planeCoeffs;
+
+  //Top plane extraction
+  topPlaneExtraction(cloudIn, cloud1, cloud2, cloudNoGround, cloudPlane, planeCoeffs);
+
+  pcl::PointCloud<MyPoint>::Ptr cloudAligned(new pcl::PointCloud<MyPoint>);
+  alignPointCloudWithPlane(cloudIn, planeCoeffs, cloudAligned);
+
+  // Build images from point cloud
+  buildImagesFromPointCloud(cloudIn, cloudPlane, planeCoeffs, imageIntensities, imageDepth, imageIntensitiesPlane,
+    imageDepthPlane, imageLambert, params.doLambert);
+
   if (params.doLambert)
     histogramNormalization(imageLambert, imageNormalized, 0.01, 0.01);
   else
-    histogramNormalization(imageIntensitiesPlane, imageNormalized, 0.01, 0.01);
-  //   else histogramNormalization(imageIntensities, imageNormalized, 0.01, 0.01);
+    histogramNormalization(imageIntensitiesPlane, imageNormalized, 0.01, 0.01); //else histogramNormalization(imageIntensities, imageNormalized, 0.01, 0.01);
 
-  std::cout << "Image blurring" << std::endl;
+  //Image blurring
   cv::Mat imageBlurred;
-  // Blurring for noise removeAllShapes
-  cv::bilateralFilter(imageNormalized, imageBlurred, 5, 100, 100);
-  //   cv::GaussianBlur(imageNormalized, imageBlurred,cv::Size(5,5),0.7);
+  blurAndRemoveInvalidPixels(imageNormalized, imageBlurred, 5, 0.7, 0.7);
 
-  // Blurring re-introduces some invalid (nan) pixels: remove them
-  for (int r = 0; r < imageBlurred.rows; ++r) {
-    for (int c = 0; c < imageBlurred.cols; ++c) {
-      if (imageNormalized.at<float>(r, c) < 1) {
-        imageBlurred.at<float>(r, c) = 0;
-      }
-    }
-  }
 
   std::cout << "Compute image gradient and orientation" << std::endl;
   // Gradient and orientation
@@ -589,10 +603,6 @@ int main(int argc, char** argv)
       }
     }
   }
-
-  //   std::cout<<"Gradient thresholding"<<std::endl;
-  //   cv::Mat imageGradientThresholded;
-  //   cv::threshold(imageGradient,imageGradientThresholded,10*4.0/256,0,cv::THRESH_TOZERO);
 
   std::cout << "Non Maxima Suppression" << std::endl;
   cv::Mat imageGradientSuppressed;
@@ -794,7 +804,7 @@ int main(int argc, char** argv)
     //       std::cout<<"h["<<i<<"]: "<<hierarchy[i]<<std::endl;
     //     }
 #pragma endregion CONTOURS_DEBUG
-    
+
     // Normalization before viewing
     cv::normalize(imageDepth, imageDepth, 0, 255, cv::NORM_MINMAX, CV_8UC1);
     cv::normalize(imageDepthPlane, imageDepthPlane, 0, 255, cv::NORM_MINMAX, CV_8UC1);
@@ -814,7 +824,7 @@ int main(int argc, char** argv)
     cv::imshow("imageIntensitiesPlane", imageIntensitiesPlane);
 
     if (params.doLambert)
-    cv::imshow("imageLambert", imageLambert);
+      cv::imshow("imageLambert", imageLambert);
     cv::imshow("imageNormalized", imageNormalized);
     cv::imshow("imageBlurred", imageBlurred);
 
