@@ -47,6 +47,7 @@ struct ArgumentList {
   std::string config;
   std::string pointCloud;
   std::string boxCenter;
+  int debug;
 };
 
 bool ParseInputs(ArgumentList& args, int argc, char** argv);
@@ -256,51 +257,53 @@ void lineGradientFilter(const pcl::PointCloud<MyPoint>& cloud,
   cv::imshow("opposite1", oppositeMat);
 }
 
-void setupWindows()
+void setupWindows(int debug)
 {
-  cv::namedWindow("imageDepth", cv::WINDOW_NORMAL);
-  cv::moveWindow("imageDepth", 0, 0);
-  cv::namedWindow("imageDepthPlane", cv::WINDOW_NORMAL);
-  cv::moveWindow("imageDepthPlane", 0, 0);
-  cv::namedWindow("imageIntensities", cv::WINDOW_NORMAL);
-  cv::moveWindow("imageIntensities", 400, 0);
-  cv::namedWindow("imageIntensitiesPlane", cv::WINDOW_NORMAL);
-  cv::moveWindow("imageIntensitiesPlane", 400, 0);
-  cv::namedWindow("imageLambert", cv::WINDOW_NORMAL);
-  cv::moveWindow("imageLambert", 800, 0);
-  cv::namedWindow("imageNormalized", cv::WINDOW_NORMAL);
-  cv::moveWindow("imageNormalized", 1200, 0);
-  cv::namedWindow("imageBlurred", cv::WINDOW_NORMAL);
-  cv::moveWindow("imageBlurred", 1600, 0);
-  cv::namedWindow("imageGradient", cv::WINDOW_NORMAL);
-  cv::moveWindow("imageGradient", 0, 350);
-  cv::namedWindow("imageGradientSuppressed", cv::WINDOW_NORMAL);
-  cv::moveWindow("imageGradientSuppressed", 400, 350);
-  cv::namedWindow("imageOrientation", cv::WINDOW_NORMAL);
-  cv::moveWindow("imageOrientation", 0, 675);
-  cv::namedWindow("opposite", cv::WINDOW_NORMAL);
-  cv::moveWindow("opposite", 800, 350);
-  cv::namedWindow("oppositeTh", cv::WINDOW_NORMAL);
-  cv::moveWindow("oppositeTh", 1200, 350);
+  if (debug) {
+    cv::namedWindow("imageDepth", cv::WINDOW_NORMAL);
+    cv::moveWindow("imageDepth", 0, 0);
+    cv::namedWindow("imageDepthPlane", cv::WINDOW_NORMAL);
+    cv::moveWindow("imageDepthPlane", 0, 0);
+    cv::namedWindow("imageIntensities", cv::WINDOW_NORMAL);
+    cv::moveWindow("imageIntensities", 400, 0);
+    cv::namedWindow("imageIntensitiesPlane", cv::WINDOW_NORMAL);
+    cv::moveWindow("imageIntensitiesPlane", 400, 0);
+    cv::namedWindow("imageLambert", cv::WINDOW_NORMAL);
+    cv::moveWindow("imageLambert", 800, 0);
+    cv::namedWindow("imageNormalized", cv::WINDOW_NORMAL);
+    cv::moveWindow("imageNormalized", 1200, 0);
+    cv::namedWindow("imageBlurred", cv::WINDOW_NORMAL);
+    cv::moveWindow("imageBlurred", 1600, 0);
+    cv::namedWindow("imageGradient", cv::WINDOW_NORMAL);
+    cv::moveWindow("imageGradient", 0, 350);
+    cv::namedWindow("imageGradientSuppressed", cv::WINDOW_NORMAL);
+    cv::moveWindow("imageGradientSuppressed", 400, 350);
+    cv::namedWindow("imageOrientation", cv::WINDOW_NORMAL);
+    cv::moveWindow("imageOrientation", 0, 675);
+    cv::namedWindow("opposite", cv::WINDOW_NORMAL);
+    cv::moveWindow("opposite", 800, 350);
+    cv::namedWindow("oppositeTh", cv::WINDOW_NORMAL);
+    cv::moveWindow("oppositeTh", 1200, 350);
+    cv::namedWindow("Probabilistic Line Transform", cv::WINDOW_NORMAL);
+    cv::moveWindow("Probabilistic Line Transform", 400, 675);
+    cv::createTrackbar("houghP_threshold_value", "Probabilistic Line Transform",
+      &houghP_threshold_value, slider_max, on_houghP_threshold_trackbar);
+    cv::createTrackbar("houghP_minLineLength_value", "Probabilistic Line Transform",
+      &houghP_minLL_value, slider_max, on_houghP_minLL_trackbar);
+    cv::createTrackbar("houghP_maxLineGap_value", "Probabilistic Line Transform",
+      &houghP_maxLG_value, slider_max, on_houghP_maxLG_trackbar);
+    on_houghP_threshold_trackbar(houghP_threshold_value, 0);
+    on_houghP_minLL_trackbar(houghP_minLL_value, 0);
+    on_houghP_maxLG_trackbar(houghP_maxLG_value, 0);
 
-  cv::namedWindow("Probabilistic Line Transform", cv::WINDOW_NORMAL);
-  cv::moveWindow("Probabilistic Line Transform", 400, 675);
-  cv::createTrackbar("houghP_threshold_value", "Probabilistic Line Transform",
-    &houghP_threshold_value, slider_max, on_houghP_threshold_trackbar);
-  cv::createTrackbar("houghP_minLineLength_value", "Probabilistic Line Transform",
-    &houghP_minLL_value, slider_max, on_houghP_minLL_trackbar);
-  cv::createTrackbar("houghP_maxLineGap_value", "Probabilistic Line Transform",
-    &houghP_maxLG_value, slider_max, on_houghP_maxLG_trackbar);
-  on_houghP_threshold_trackbar(houghP_threshold_value, 0);
-  on_houghP_minLL_trackbar(houghP_minLL_value, 0);
-  on_houghP_maxLG_trackbar(houghP_maxLG_value, 0);
-
-  cv::namedWindow("findContours", cv::WINDOW_NORMAL);
-  cv::moveWindow("findContours", 800, 675);
-  cv::namedWindow("approximation", cv::WINDOW_NORMAL);
-  cv::moveWindow("approximation", 800, 675);
+    cv::namedWindow("findContours", cv::WINDOW_NORMAL);
+    cv::moveWindow("findContours", 800, 675);
+    cv::namedWindow("approximation", cv::WINDOW_NORMAL);
+    cv::moveWindow("approximation", 800, 675);
+  }
   cv::namedWindow("hull", cv::WINDOW_NORMAL);
   cv::moveWindow("hull", 800, 675);
+
 }
 
 void plotPlane(const rofl::HoughPlaneDetector::PlaneParam& params, const pcl::PointCloud<MyPoint>& cloud, float distMax, pcl::ModelCoefficients& coefficients, float& x, float& y,
@@ -618,10 +621,9 @@ int main(int argc, char** argv)
   applyColorMapAndThreshold(imageNormalized, orientation, orientationColored);
 
   //Non maximum suppression
-  nonMaximumSuppression(imageGradient, imageGradientSuppressed, 10 * 4.0 / 256,1, 3);
+  nonMaximumSuppression(imageGradient, imageGradientSuppressed, 10 * 4.0 / 256, 1, 3);
 
   if (params.doLineFilter) {
-    std::cout << "Line Gradient Filter" << std::endl;
     lineGradientFilter(*cloudPlane, imageBlurred, imageGradientSuppressed, imageSobelX, imageSobelY, imageGradient, opposite, 0.1);
     cv::threshold(opposite, oppositeTh, 210, 255, cv::THRESH_BINARY);
   } else {
@@ -635,89 +637,17 @@ int main(int argc, char** argv)
   viewer->addCoordinateSystem(0.3);
   viewer->addPointCloud<MyPoint>(cloudIn, "cloudIn");
   viewer->addPointCloud<MyPoint>(cloudPlane, "cloudPlane");
-  //   viewer->addPointCloud<MyPoint>(cloudPlaneOrgProj, "cloudPlaneProj");
-  //   viewer->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_COLOR, 0,0,1, "cloudPlaneProj");
   viewer->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_COLOR, 0, 1, 0, "cloudPlane");
   viewer->addPointCloud<MyPoint>(cloudAligned, "cloudAligned");
 
-  //   viewer->addPointCloud<MyPoint>(cloudOut, "cloudOut");
-  //   viewer->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_COLOR, 1,0,1, "cloudOut");
-
-  //   for (int i = 0; i < planes.size(); ++i) {
-  //     pcl::ModelCoefficients coefficients;
-  //     float x, y, z;
-  //     int n;
-  //     std::stringstream ss;
-  //
-  //     plotPlane(planes[i], *cloudIn, 2.0 * rhoStep, coefficients, x, y, z, n);
-  //
-  //     ss << "plane_" << i;
-  //     std::cout << "  " << ss.str() << " [" << planes[i].transpose() << "]  centered in [" << x << "," << y << "," << z << "]  inliers " << n << std::endl;
-  //
-  //     if (n > 1000) {
-  //       viewer->addPlane(coefficients, x, y, z, ss.str());
-  // //       PointIn textPos;
-  // //       textPos.x = x + 0.10 * planes[i](0);
-  // //       textPos.y = y + 0.10 * planes[i](1);
-  // //       textPos.z = z + 0.10 * planes[i](2);
-  // //       ss.str("");
-  // //       ss << "pl_" << i;
-  // //       viewer->addText3D(ss.str(), textPos, 0.05, 0.0, 0.0, 0.0);
-  //     }
-  //   }
 
   MyPoint normalP1, normalP2;
-  //  if ((!hsMaxima.empty())
-  //  {
-  //    normalP1.x = normalP1.y = normalP1.z = 0.0f;
-  //    normalP2.x = hpd.getNormal(hsMaxima[0])(0);
-  //    normalP2.y = hpd.getNormal(hsMaxima[0])(1);
-  //    normalP2.z = hpd.getNormal(hsMaxima[0])(2);
-  //    viewer->addArrow(normalP2, normalP1, 1.0f, 1.0f, 0.0, true, "normalMax");
-  //    normalP2.x = -0.694553;
-  //    normalP2.y = 0.0121235;
-  //    normalP2.z = 0.71934;
-  //    viewer->addArrow(normalP2, normalP1, 1.0f, 0.0f, 0.0, true, "max1");
-  //    normalP2.x = -0.920505;
-  //    normalP2.y = 0;
-  //    normalP2.z = 0.390731;
-  //    viewer->addArrow(normalP2, normalP1, 0.0f, 1.0f, 0.0, true, "max2");
-  //    normalP2.x = -0.990268;
-  //    normalP2.y = 0;
-  //    normalP2.z = 0.139173;
-  //    viewer->addArrow(normalP2, normalP1, 0.0f, 0.0f, 1.0, true, "max3");
-  //  }
-
-  //  for (int i = 0; i < planes.size(); ++i)
-  //  {
-  //    pcl::ModelCoefficients coefficients;
-  //    float x, y, z;
-  //    int n;
-  //    std::stringstream ss;
-
-  //    plotPlane(planes[i], *cloudIn, 2.0 * std::abs(houghSteps(2)), coefficients, x, y, z, n);
-
-  //    ss << "plane_" << i;
-  //    std::cout << "  " << ss.str() << " [" << planes[i].transpose() << "]  centered in [" << x << "," << y << "," << z << "]  inliers " << n << std::endl;
-
-  //    if (n > 100)
-  //    {
-  //      viewer->addPlane(coefficients, x, y, z, ss.str());
-  //      MyPoint textPos;
-  //      textPos.x = x + 0.10 * planes[i](0);
-  //      textPos.y = y + 0.10 * planes[i](1);
-  //      textPos.z = z + 0.10 * planes[i](2);
-  //      ss.str("");
-  //      ss << "pl_" << i;
-  //      viewer->addText3D(ss.str(), textPos, 0.05, 0.0, 0.0, 0.0);
-  //    }
-  //  }
 
   pcl::visualization::PCLVisualizer::Ptr viewer2(new pcl::visualization::PCLVisualizer("Box hull"));
   viewer2->addCoordinateSystem(0.3);
 
   // Set up opencv windows
-  setupWindows();
+  setupWindows(args.debug);
 
   std::cout << "Start loop" << std::endl;
   bool exit_loop = false;
@@ -755,7 +685,6 @@ int main(int argc, char** argv)
     boxDetector.findContoursAndDraw(cdstP, imageIntensities, contours, hierarchy, rng, drawing,
       drawingHull, viewer2, cloudAligned, faceCentroids, maf_centroids_preReg,
       maf_centroids_postReg, maf_faceCentroids_postReg, params.longEdge, params.shortEdge);
-
 
 
     if (params.estimateError) {
@@ -805,29 +734,32 @@ int main(int argc, char** argv)
     cv::normalize(imageGradientSuppressed, imageGradientSuppressed, 0, 255, cv::NORM_MINMAX, CV_8UC1);
 
     // Display opencv windows
-    cv::imshow("imageDepth", imageDepth);
-    cv::imshow("imageDepthPlane", imageDepthPlane);
-    cv::imshow("imageIntensities", imageIntensities);
-    cv::imshow("imageIntensitiesPlane", imageIntensitiesPlane);
+    if (args.debug) {
+      cv::imshow("imageDepth", imageDepth);
+      cv::imshow("imageDepthPlane", imageDepthPlane);
+      cv::imshow("imageIntensities", imageIntensities);
+      cv::imshow("imageIntensitiesPlane", imageIntensitiesPlane);
 
-    if (params.doLambert)
-      cv::imshow("imageLambert", imageLambert);
-    cv::imshow("imageNormalized", imageNormalized);
-    cv::imshow("imageBlurred", imageBlurred);
+      if (params.doLambert)
+        cv::imshow("imageLambert", imageLambert);
+      cv::imshow("imageNormalized", imageNormalized);
+      cv::imshow("imageBlurred", imageBlurred);
 
-    cv::imshow("imageGradient", imageGradient);
-    cv::imshow("imageGradientSuppressed", imageGradientSuppressed);
+      cv::imshow("imageGradient", imageGradient);
+      cv::imshow("imageGradientSuppressed", imageGradientSuppressed);
 
-    cv::imshow("imageOrientation", orientationColored);
+      cv::imshow("imageOrientation", orientationColored);
 
-    if (params.doLineFilter)
-      cv::imshow("opposite", opposite);
-    cv::imshow("oppositeTh", oppositeTh);
+      if (params.doLineFilter)
+        cv::imshow("opposite", opposite);
+      cv::imshow("oppositeTh", oppositeTh);
 
-    cv::imshow("Probabilistic Line Transform", cdstP);
+      cv::imshow("Probabilistic Line Transform", cdstP);
 
-    cv::imshow("findContours", drawing);
-    cv::imshow("approximation", drawingApprox);
+      cv::imshow("findContours", drawing);
+      cv::imshow("approximation", drawingApprox);
+    }
+
     cv::imshow("hull", drawingHull);
 
     viewer->spinOnce(100);
@@ -849,14 +781,15 @@ int main(int argc, char** argv)
 
   // Destroy opencv windows
   cv::destroyAllWindows();
-
-  return 0;
+  char key = cv::waitKey(0);
+  if (key == 'q')
+    exit(0);
 }
 
 bool ParseInputs(ArgumentList& args, int argc, char** argv) {
   int c;
 
-  while ((c = getopt(argc, argv, "hc:p:b:")) != -1)
+  while ((c = getopt(argc, argv, "hc:p:b:d:")) != -1)
     switch (c) {
     case 'c':
       args.config = optarg;
@@ -867,6 +800,9 @@ bool ParseInputs(ArgumentList& args, int argc, char** argv) {
     case 'b':
       args.boxCenter = optarg;
       break;
+    case 'd':
+      args.debug = atoi(optarg);
+      break;
     case 'h':
     default:
       std::cout << "usage: " << argv[0] << " -c <config> -p <point cloud> -b <box_center>" << std::endl;
@@ -874,7 +810,8 @@ bool ParseInputs(ArgumentList& args, int argc, char** argv) {
         "   -h                       produce help message" << std::endl <<
         "   -c 'path'                path to the configuration file" << std::endl <<
         "   -p 'path'                path to the pointcloud" << std::endl <<
-        "   -b 'path'                path to the box center file" << std::endl << std::endl;
+        "   -b 'path'                path to the box center file" << std::endl <<
+        "   -d                       debug. Show more information" << std::endl << std::endl;
       return false;
     }
   return true;
