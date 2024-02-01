@@ -3,14 +3,6 @@
 #include <rofl/geometry/correspondence_graph_association.h>
 #include <rofl/common/param_map.h>
 
-struct ArgumentList {
-  std::string config;
-  std::string pointCloud;
-  std::string boxCenter;
-  int debug;
-};
-
-bool ParseInputs(ArgumentList& args, int argc, char** argv);
 
 using namespace rofl;
 
@@ -26,6 +18,42 @@ float houghP_threshold = (float)houghP_threshold_value / slider_max;
 float houghP_minLL = (float)houghP_minLL_value / slider_max;
 float houghP_maxLG = (float)houghP_maxLG_value / slider_max;
 
+struct ArgumentList {
+  std::string config;
+  std::string pointCloud;
+  std::string boxCenter;
+  int debug;
+};
+
+bool ParseInputs(ArgumentList& args, int argc, char** argv) {
+  int c;
+  while ((c = getopt(argc, argv, "hc:p:b:d:")) != -1)
+    switch (c) {
+    case 'c':
+      args.config = optarg;
+      break;
+    case 'p':
+      args.pointCloud = optarg;
+      break;
+    case 'b':
+      args.boxCenter = optarg;
+      break;
+    case 'd':
+      args.debug = atoi(optarg);
+      break;
+    case 'h':
+    default:
+      std::cout << "usage: " << argv[0] << " -c <config> -p <point cloud> -b <box_center>" << std::endl;
+      std::cout << "Allowed options:" << std::endl <<
+        "   -h                       produce help message" << std::endl <<
+        "   -c 'path'                path to the configuration file" << std::endl <<
+        "   -p 'path'                path to the pointcloud" << std::endl <<
+        "   -b 'path'                path to the box center file" << std::endl <<
+        "   -d                       debug. Show more information" << std::endl << std::endl;
+      return false;
+    }
+  return true;
+}
 static void on_houghP_threshold_trackbar(int, void*)
 {
   houghP_threshold = (float)houghP_threshold_value / slider_max;
@@ -174,30 +202,6 @@ void lineGradientFilter(const pcl::PointCloud<MyPoint>& cloud,
       } else {
         oppositeMat.at<unsigned char>(r, c) = 254;
       }
-
-      //       for(int k=0; k<it.count; ++k, ++it) {
-      //         float i = in.at<float>(r,c);
-      //         if (i < 1) { break; }
-      //         float dgX = gX+gradientX.at<float>(it.pos());
-      //         float dgY = gY+gradientY.at<float>(it.pos());
-      //
-      // //         std::cout << "   " << (dgX*dgX+dgY*dgY) << std::endl;
-      // //         if(dgX*dgX+dgY*dgY < 0.0625) {
-      // //           if(k < 4) break;
-      // //
-      // // //         if(dgX*dgX+dgY*dgY < 0.1) {
-      // // //           std::cout << "  B " << r << "," << c << " -> 0 (under threshold)" << std::endl;
-      // // //           std::cout << "  C " << it.pos().y << "," << it.pos().x << " -> 0 (under threshold)" << std::endl;
-      // //           magnitude.at<float>(r,c) = 0;
-      // //           magnitude.at<float>(it.pos()) = 0;
-      // //
-      // // //           magnitude.at<float>(r,c) = 1000*cv::norm(cv::Point(c,r)-it.pos());
-      // // //           magnitude.at<float>(it.pos()) = 1000*cv::norm(cv::Point(c,r)-it.pos());
-      // //           break;
-      // //         }
-      //           magnitude.at<float>(r,c) = 0;
-      //           magnitude.at<float>(it.pos()) = 0;
-      //       }
     }
   }
 
@@ -363,7 +367,6 @@ bool fileExists(const std::string& filename) {
 }
 ConfigParam readConfigParam(const std::string& configFile) {
   ConfigParam params;
-
   try {
     boost::property_tree::ptree root;
     boost::property_tree::read_json(configFile, root);
@@ -455,7 +458,6 @@ int main(int argc, char** argv)
   printConsole("Reading completed successfully. Number of points: " + cloudIn->size());
 
   // TOP PLANE EXTRACTION
-
   // Plane coefficients extracted from the point cloud with RANSAC
   Eigen::VectorXf planeCoeffs;
 
@@ -527,8 +529,7 @@ int main(int argc, char** argv)
     cdstP = cdst.clone();
 
     std::vector<cv::Vec4i> linesP; // will hold the results of the detection
-    HoughLinesP(oppositeTh, linesP, 1, CV_PI / 180,
-      houghP_threshold_value, houghP_minLL_value, houghP_maxLG_value); // runs the actual detection
+    HoughLinesP(oppositeTh, linesP, 1, CV_PI / 180, houghP_threshold_value, houghP_minLL_value, houghP_maxLG_value); // runs the actual detection
     // Draw the lines
     for (size_t i = 0; i < linesP.size(); i++) {
       cv::Vec4i l = linesP[i];
@@ -558,15 +559,15 @@ int main(int argc, char** argv)
       std::vector<Eigen::Vector2f, Eigen::aligned_allocator<Eigen::Vector2f>> centroidsGt;
       centroidsGt = boxDetector.loadGroundTruth(args.boxCenter);
 
-      std::cout << "Risultati:" << std::endl;
       float faceResults = boxDetector.computeError(faceCentroids, centroidsGt);
       float preRegResults = boxDetector.computeError(maf_centroids_preReg, centroidsGt);
       float postRegResults = boxDetector.computeError(maf_centroids_postReg, centroidsGt);
       float facePostRegResults = boxDetector.computeError(maf_faceCentroids_postReg, centroidsGt);
       // //     float aDist = evaluateAssociationDistance(maf_centroids_preReg, centroidsGt);
-      //
+  
 
       /*
+      std::cout << "Risultati:" << std::endl;
       std::cout << "face centroids error: " << faceResults << std::endl;
       std::cout << "contour centroids error pre reg: " << preRegResults << std::endl;
       std::cout << "contour centroids error post reg: " << postRegResults << std::endl;
@@ -652,33 +653,3 @@ int main(int argc, char** argv)
     exit(0);
 }
 
-bool ParseInputs(ArgumentList& args, int argc, char** argv) {
-  int c;
-
-  while ((c = getopt(argc, argv, "hc:p:b:d:")) != -1)
-    switch (c) {
-    case 'c':
-      args.config = optarg;
-      break;
-    case 'p':
-      args.pointCloud = optarg;
-      break;
-    case 'b':
-      args.boxCenter = optarg;
-      break;
-    case 'd':
-      args.debug = atoi(optarg);
-      break;
-    case 'h':
-    default:
-      std::cout << "usage: " << argv[0] << " -c <config> -p <point cloud> -b <box_center>" << std::endl;
-      std::cout << "Allowed options:" << std::endl <<
-        "   -h                       produce help message" << std::endl <<
-        "   -c 'path'                path to the configuration file" << std::endl <<
-        "   -p 'path'                path to the pointcloud" << std::endl <<
-        "   -b 'path'                path to the box center file" << std::endl <<
-        "   -d                       debug. Show more information" << std::endl << std::endl;
-      return false;
-    }
-  return true;
-}

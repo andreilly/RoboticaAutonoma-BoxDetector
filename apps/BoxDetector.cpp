@@ -2,13 +2,13 @@
 float BoxDetector::computeError(const std::vector<Eigen::Vector2f, Eigen::aligned_allocator<Eigen::Vector2f>>& estimated, const std::vector<Eigen::Vector2f, Eigen::aligned_allocator<Eigen::Vector2f>>& groundTruth)
 {
   if (estimated.size() != groundTruth.size()) {
-    std::cout << "estimatedSize: " << estimated.size() << " gtSize: " << groundTruth.size() << std::endl;
+    //std::cout << "estimatedSize: " << estimated.size() << " gtSize: " << groundTruth.size() << std::endl;
     throw std::runtime_error("Error! Estimated centroids size different from ground truth size!");
   }
 
-  std::cout << "Estimated:" << std::endl;
+  //std::cout << "Estimated:" << std::endl;
   std::vector<float> estDistances = BoxDetector::computePaiwiseDistanceSet(estimated);
-  std::cout << "Gt: " << std::endl;
+  //std::cout << "Gt: " << std::endl;
   std::vector<float> gtDistances = BoxDetector::computePaiwiseDistanceSet(groundTruth);
 
   std::sort(estDistances.begin(), estDistances.end());
@@ -23,14 +23,14 @@ float BoxDetector::computeError(const std::vector<Eigen::Vector2f, Eigen::aligne
 }
 
 std::vector<float> BoxDetector::computePaiwiseDistanceSet(const std::vector<Eigen::Vector2f, Eigen::aligned_allocator<Eigen::Vector2f>>& points)
-{//prende vettore punti in input e calcola la norma tra ogni punto e tutti gli altri
+{
+  //prende vettore punti in input e calcola la norma tra ogni punto e tutti gli altri
   std::vector<float> result;
   result.reserve(points.size() * (points.size() - 1) / 2);
 
   for (int i = 0; i < points.size(); ++i) {
     for (int j = i + 1; j < points.size(); ++j) {
       result.push_back((points[i] - points[j]).norm());
-      std::cout << result.back() << std::endl;
     }
   }
 
@@ -67,12 +67,12 @@ void BoxDetector::findContoursAndDraw(cv::Mat& cdstP, cv::Mat& imageIntensities,
     //       if(hierarchy[i][3] != 0) continue;
     // Filtering non boxes contours (eg. connected components)
     double area0 = cv::contourArea(contours[i]);
-    std::cout << "contours[" << i << "] - area0 =" << area0 << std::endl;
+    //std::cout << "contours[" << i << "] - area0 =" << area0 << std::endl;
     // Filter by size and by hierarchy (they should have a parent)
     // dataset coorsa 6000 pixel per scatola. invece scatole bianche 9000
     //       if( (area0 < 1000 || area0 > 6000) || hierarchy[i][3] == -1 ) {
     if ((area0 < 1000 || area0 > 9000) || hierarchy[i][3] == -1) {
-      std::cout << "not a box" << std::endl;
+      //std::cout << "not a box" << std::endl;
       continue;
     }
 
@@ -158,7 +158,7 @@ void BoxDetector::findContoursAndDraw(cv::Mat& cdstP, cv::Mat& imageIntensities,
 std::vector<Eigen::Vector2f, Eigen::aligned_allocator<Eigen::Vector2f>> BoxDetector::loadGroundTruth(const std::string& filenameIn)
 {
   std::string gtIn = filenameIn;
-  std::cout << "Loading ground truth from \"" << gtIn << "\"" << std::endl;
+  //std::cout << "Loading ground truth from \"" << gtIn << "\"" << std::endl;
   std::vector<Eigen::Vector2f, Eigen::aligned_allocator<Eigen::Vector2f>> centroidsGt;
   std::ifstream gt;
   std::string boxName;
@@ -184,7 +184,7 @@ std::vector<Eigen::Vector2f, Eigen::aligned_allocator<Eigen::Vector2f>> BoxDetec
 void BoxDetector::topPlaneExtraction(pcl::PointCloud<MyPoint>::Ptr cloudIn, pcl::PointCloud<MyPoint>::Ptr cloud1,
   pcl::PointCloud<MyPoint>::Ptr cloud2, pcl::PointCloud<MyPoint>::Ptr cloudNoGround,
   pcl::PointCloud<MyPoint>::Ptr cloudPlane, Eigen::VectorXf& planeCoeffs) {
-  std::cout << "Start top plane extraction" << std::endl;
+  //std::cout << "Start top plane extraction" << std::endl;
   ransacTopPlaneExtraction(cloudIn, cloud1, cloud2, cloudNoGround, cloudPlane, planeCoeffs);
   onPlaneProjection(*cloudPlane, planeCoeffs);
 }
@@ -208,13 +208,13 @@ void BoxDetector::buildImagesFromPointCloud(const pcl::PointCloud<MyPoint>::Ptr 
   cloudToImgDepth(*cloudPlane, imageDepthPlane);
 
   if (doLambert) {
-    std::cout << "Lambert compensation" << std::endl;
+    //std::cout << "Lambert compensation" << std::endl;
     cloudToImgIntensitiesLambertCompensation(*cloudPlane, planeCoeffs, imageLambert);
     // cloudToImgIntensitiesLambertCompensation(*cloudIn, planeCoeffs, imageLambert);
   }
 }
 void BoxDetector::blurAndRemoveInvalidPixels(cv::Mat& inputImage, cv::Mat& outputImage, int filterSize, double sigmaColor, double sigmaSpace) {
-  std::cout << "Image blurring" << std::endl;
+  //std::cout << "Image blurring" << std::endl;
   cv::Mat imageBlurred;
   // Blurring for noise removal
   cv::bilateralFilter(inputImage, imageBlurred, filterSize, sigmaColor, sigmaSpace);
@@ -231,7 +231,7 @@ void BoxDetector::blurAndRemoveInvalidPixels(cv::Mat& inputImage, cv::Mat& outpu
 }
 void BoxDetector::computeImageGradientAndOrientation(const cv::Mat& imageBlurred, cv::Mat& imageSobelX, cv::Mat& imageSobelY, const cv::Mat& imageNormalized,
   cv::Mat& imageGradient, cv::Mat& orientation) {
-  std::cout << "Compute image gradient and orientation" << std::endl;
+  //std::cout << "Compute image gradient and orientation" << std::endl;
 
   cv::Sobel(imageBlurred, imageSobelX, CV_32FC1, 1, 0, 3, 1.0 / 256, 0);
   cv::Sobel(imageBlurred, imageSobelY, CV_32FC1, 0, 1, 3, 1.0 / 256, 0);
