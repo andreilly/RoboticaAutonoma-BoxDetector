@@ -65,4 +65,3 @@ target_link_libraries (detector ${PCL_LIBRARIES} ${OpenCV_LIBS} ${rofl_LIBRARIES
 #${rofl_LIBRARY})
 
 
-
