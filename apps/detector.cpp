@@ -519,6 +519,7 @@ int main(int argc, char** argv)
 
   std::cout << "Start loop" << std::endl;
   bool exit_loop = false;
+  bool firstTime = true;
   while (!exit_loop) {
     viewer2->removeAllPointClouds();
 
@@ -564,7 +565,7 @@ int main(int argc, char** argv)
       float postRegResults = boxDetector.computeError(maf_centroids_postReg, centroidsGt);
       float facePostRegResults = boxDetector.computeError(maf_faceCentroids_postReg, centroidsGt);
       // //     float aDist = evaluateAssociationDistance(maf_centroids_preReg, centroidsGt);
-  
+
 
       /*
       std::cout << "Risultati:" << std::endl;
@@ -626,15 +627,19 @@ int main(int argc, char** argv)
     }
 
     cv::imshow("hull", drawingHull);
-
     viewer->spinOnce(100);
     viewer2->spinOnce(100);
 
     printConsole("Press 'p' to continue, other key to exit");
-    char key = cv::waitKey(0);
-    if (key != 'p') {
+    if (!firstTime) {
+      char key = cv::waitKey(0);
+      if (key != 'p') {
         exit_loop = true;
+      }
+    }else{
+      firstTime = false;
     }
+
   }
 
   // Reset pcl viewer
@@ -648,8 +653,6 @@ int main(int argc, char** argv)
 
   // Destroy opencv windows
   cv::destroyAllWindows();
-  char key = cv::waitKey(0);
-  if (key == 'q')
-    exit(0);
+  exit(0);
 }
 
