@@ -13,5 +13,5 @@ Per avviare il detector è necessario utilizzare le seguenti opzioni di avvio:
 
 Esempio di avvio: 
 ```bash
-./detector -c /home/boxdetector/conf.json -p /home/boxdetector/pointcloud.pcd
+./detector -c /home/boxdetector/conf.json -p /home/boxdetector/pointcloud.pcd -d
 ```
