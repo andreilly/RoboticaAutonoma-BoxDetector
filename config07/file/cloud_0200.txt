@@ -1,0 +1,10 @@
+
+groundCoeffs:  -0.821421 -0.0676866   0.566292    1.51229
+planeCoeffs:  -0.82971 -0.097403  0.549631  0.938935
+
+Risultati:
+face centroids error: 0.00431312
+contour centroids error pre reg: 0.0161476
+contour centroids error post reg: 0.0153348
+face centroids error post reg: 0.00438513
+
